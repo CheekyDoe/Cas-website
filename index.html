@@ -84,6 +84,12 @@ p{margin:0}
 .courier .dr.flip{transform:scaleX(-1)}
 .courier .cable{position:absolute;left:50%;width:1.5px;background:rgba(246,241,231,.85);transform:translateX(-50%)}
 .drop-item{will-change:transform}
+body{position:relative}
+.amb-layer{position:absolute;left:0;top:0;width:100%;overflow:hidden;pointer-events:none;z-index:15}
+.amb{position:absolute;left:0;top:0;pointer-events:none;will-change:transform;opacity:0}
+.amb .dr{width:100%;filter:drop-shadow(0 8px 8px rgba(0,0,0,.25))}
+.amb .dr svg,.amb .dr img{width:100%;height:auto;display:block}
+.amb .dr.flip{transform:scaleX(-1)}
 .swap{font-family:var(--f-display);font-weight:600;font-size:clamp(1.35rem,3.4vw,2.3rem);line-height:1.15}
 .rotbox{display:grid;margin-top:4px;color:var(--hot);overflow:hidden;padding-bottom:4px}
 .rw{grid-area:1/1;justify-self:start;white-space:nowrap;border-bottom:3px solid var(--hot);opacity:0;transform:translateY(14px);transition:opacity .45s,transform .45s}
@@ -895,6 +901,85 @@ function droneDrop(baseDelay){
   requestAnimationFrame(frame);
 }
 
+
+/* ---------- ambient drones: every so often a drone crosses the screen, routing around text and images ---------- */
+function ambientDrones(){
+  if(reduce||window._casAmbient)return;window._casAmbient=true;
+  var layer=document.createElement("div");layer.className="amb-layer";layer.setAttribute("aria-hidden","true");document.body.appendChild(layer);
+  var busy=false;
+  var AVOID="h1,h2,h3,p,li,label,img,video,canvas.art,.btn,.chip,.pkg,.zmap-wrap,.zres,.enq,.details .row,.tile,.gitem,.spec,.marquee,.badge,.nav,.eyebrow,.swap,.cta,.filters,.zform,.zout,.vf .rec,.vf .vf-r,footer,.editbar";
+  function schedule(){setTimeout(tryFly,6000+Math.random()*9000);}
+  function tryFly(){
+    if(busy||document.hidden||location.hash==="#gallery"||document.querySelector(".lb.open")||document.querySelector(".intro")){schedule();return;}
+    if(!fly())schedule();
+  }
+  function fly(){
+    var W=window.innerWidth,H=window.innerHeight,mob=W<600,dw=mob?46:78,dh=dw*.55,C=mob?12:18;
+    var cols=Math.ceil(W/C)+2,rows=Math.floor(H/C),grid=new Uint8Array(cols*rows);
+    var padX=dw*(mob?.38:.45),padY=dh*(mob?.5:.6)+(mob?3:6);
+    document.querySelectorAll(AVOID).forEach(function(el){
+      var r=el.getBoundingClientRect();if(!r.width||r.bottom<-padY||r.top>H+padY)return;
+      var cs=getComputedStyle(el);if(cs.visibility==="hidden"||cs.display==="none"||+cs.opacity===0)return;
+      var c0=Math.max(1,Math.floor((r.left-padX)/C)+1),c1=Math.min(cols-2,Math.floor((r.right+padX)/C)+1),
+          r0=Math.max(0,Math.floor((r.top-padY)/C)),r1=Math.min(rows-1,Math.floor((r.bottom+padY)/C));
+      for(var y=r0;y<=r1;y++)for(var x=c0;x<=c1;x++)grid[y*cols+x]=1;
+    });
+    // keep clear of the very top and bottom edges
+    for(var x=0;x<cols;x++){for(var y=0;y<2;y++){grid[y*cols+x]=1;grid[(rows-1-y)*cols+x]=1;}}
+    var dir=Math.random()<.5?1:-1,sc=dir>0?0:cols-1,ec=dir>0?cols-1:0;
+    var starts=[];for(var y=2;y<rows-2;y++)if(!grid[y*cols+sc]&&!grid[y*cols+sc+dir])starts.push(y);
+    if(!starts.length)return false;
+    var sy=starts[Math.floor(Math.random()*starts.length)];
+    // A* across the grid to any free cell on the far edge
+    var N=cols*rows,g=new Float32Array(N).fill(1e9),from=new Int32Array(N).fill(-1),open=[],closed=new Uint8Array(N);
+    var s0=sy*cols+sc;g[s0]=0;open.push([Math.abs(ec-sc),s0]);
+    var goal=-1,steps=0;
+    while(open.length&&steps++<20000){
+      var bi=0;for(var i=1;i<open.length;i++)if(open[i][0]<open[bi][0])bi=i;
+      var cur=open.splice(bi,1)[0][1];if(closed[cur])continue;closed[cur]=1;
+      var cx=cur%cols,cy=(cur-cx)/cols;if(cx===ec){goal=cur;break;}
+      for(var dy=-1;dy<=1;dy++)for(var dx=-1;dx<=1;dx++){if(!dx&&!dy)continue;
+        var nx=cx+dx,ny=cy+dy;if(nx<0||ny<0||nx>=cols||ny>=rows)continue;var ni=ny*cols+nx;if(grid[ni]||closed[ni])continue;
+        if(dx&&dy&&(grid[cy*cols+nx]||grid[ny*cols+cx]))continue;
+        var cost=g[cur]+(dx&&dy?1.45:dy?1.3:1)+(dx===-dir?3:0);
+        if(cost<g[ni]){g[ni]=cost;from[ni]=cur;open.push([cost+Math.abs(ec-nx),ni]);}}
+    }
+    if(goal<0)return false;
+    var cells=[];for(var c=goal;c>=0;c=from[c])cells.unshift(c);
+    var P=cells.map(function(c){var x=c%cols,y=(c-x)/cols;return [(x-1)*C+C/2,y*C+C/2];});
+    // pull the path tight where there is a clear line of sight
+    function clear(a,b){var n=Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/(C*.5));for(var i=0;i<=n;i++){var x=a[0]+(b[0]-a[0])*i/n,y=a[1]+(b[1]-a[1])*i/n,gx=Math.floor(x/C)+1,gy=Math.floor(y/C);
+      if(gx>=0&&gx<cols&&gy>=0&&gy<rows&&grid[gy*cols+gx])return false;}return true;}
+    var W2=[P[0]],k=0;while(k<P.length-1){var j=P.length-1;while(j>k+1&&!clear(P[k],P[j]))j--;W2.push(P[j]);k=j;}
+    W2.unshift([W2[0][0]-dir*dw,W2[0][1]]);W2.push([W2[W2.length-1][0]+dir*dw,W2[W2.length-1][1]]);
+    // smooth with Catmull-Rom and measure
+    var S=[];for(var i=0;i<W2.length-1;i++){var p0=W2[Math.max(0,i-1)],p1=W2[i],p2=W2[i+1],p3=W2[Math.min(W2.length-1,i+2)];
+      for(var t=0;t<1;t+=.05){var t2=t*t,t3=t2*t;S.push([.5*((2*p1[0])+(-p0[0]+p2[0])*t+(2*p0[0]-5*p1[0]+4*p2[0]-p3[0])*t2+(-p0[0]+3*p1[0]-3*p2[0]+p3[0])*t3),
+        .5*((2*p1[1])+(-p0[1]+p2[1])*t+(2*p0[1]-5*p1[1]+4*p2[1]-p3[1])*t2+(-p0[1]+3*p1[1]-3*p2[1]+p3[1])*t3)]);}}
+    S.push(W2[W2.length-1]);
+    var L=[0];for(var i=1;i<S.length;i++)L.push(L[i-1]+Math.hypot(S[i][0]-S[i-1][0],S[i][1]-S[i-1][1]));
+    var total=L[L.length-1],speed=W<600?120:170,D=total/speed*1000;
+    function at(d){d=Math.max(0,Math.min(total,d));var i=1;while(i<L.length-1&&L[i]<d)i++;var u=(d-L[i-1])/((L[i]-L[i-1])||1);
+      return [S[i-1][0]+(S[i][0]-S[i-1][0])*u,S[i-1][1]+(S[i][1]-S[i-1][1])*u];}
+    // drone in page coordinates so it scrolls with the content it's avoiding
+    var ox=window.scrollX,oy=window.scrollY;layer.style.height=document.documentElement.scrollHeight+"px";
+    var d=document.createElement("div");d.className="amb";d.style.width=dw+"px";
+    d.innerHTML='<div class="dr'+(dir>0?'':' flip')+'">'+droneMarkup(STATE)+'</div>';layer.appendChild(d);
+    busy=true;var t0=null,tilt=0,ph=Math.random()*6,h=12;
+    function ease(u){return u<.5?2*u*u:1-Math.pow(-2*u+2,2)/2;}
+    function frame(now){if(t0===null)t0=now;var u=Math.min(1,(now-t0)/D),dist=ease(u)*total,p=at(dist);
+      var ah=at(dist-h),bh=at(dist+h),vx=(bh[0]-ah[0]),vy=(bh[1]-ah[1]);
+      var lean=Math.max(-16,Math.min(16,vx*0.35+vy*-0.15*dir));tilt+=(lean-tilt)*.12;
+      var bob=Math.sin(now/260+ph)*2;
+      d.style.transform="translate("+(ox+p[0]-dw/2).toFixed(1)+"px,"+(oy+p[1]-dh/2+bob).toFixed(1)+"px) rotate("+tilt.toFixed(2)+"deg)";
+      d.style.opacity=u<.04?u/.04:u>.96?(1-u)/.04:1;
+      if(u<1)requestAnimationFrame(frame);else{d.remove();busy=false;schedule();}}
+    requestAnimationFrame(frame);
+    return true;
+  }
+  schedule();
+}
+
 /* ---------- intro: drone flies left to right, growing as it nears, pulling the curtain ---------- */
 var DRONE_SVG=(function(){
   /* original CAS airframe: graphite shell, ochre light strip, ball gimbal, ochre-tipped props */
@@ -960,7 +1045,7 @@ function intro(){
   var D=4300,t0=null,ended=false;
   function lerp(a,b,t){return a+(b-a)*t;}
   function ease(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;}
-  function finish(){if(ended)return;ended=true;document.body.classList.add("go");html.style.overflow=prevOverflow;ov.classList.add("done");setTimeout(function(){ov.remove();},400);}
+  function finish(){if(ended)return;ended=true;document.body.classList.add("go");setTimeout(ambientDrones,4500);html.style.overflow=prevOverflow;ov.classList.add("done");setTimeout(function(){ov.remove();},400);}
   ov.onclick=finish;
   function frame(ts){
     if(ended)return;
