@@ -426,7 +426,7 @@ function render(){
     '<div class="intro-copy reveal"><span class="eyebrow mono" style="color:var(--accent)">Fly zones</span><h2 style="margin:14px 0 18px">Can I fly there?</h2>'+
       '<p>Tap the map or pick a suburb to see if I can shoot your property. Airports, flight paths and national parks all have their own rules.</p>'+
       '<p>Not sure? Send me the address and I\'ll check it properly before we book.</p>'+
-      '<div class="zform"><label class="mono" for="zq" style="color:var(--muted)">Search a place</label><div class="zsearch"><input id="zq" type="search" placeholder="Suburb, city or airport" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="zlist"><ul id="zlist" role="listbox" hidden></ul></div></div>'+
+      '<div class="zform"><label class="mono" for="zq" style="color:var(--muted)">Search anywhere in Australia</label><div class="zsearch"><input id="zq" type="search" placeholder="Town, suburb or address" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="zlist"><ul id="zlist" role="listbox" hidden></ul></div></div>'+
     '</div>'+
     '<div class="zmap-wrap reveal" id="zwrap"><div id="zmap"></div><div class="zviews"><button id="zhome">My area</button><button id="zau">All of Australia</button><button id="zsat" hidden>Satellite</button></div></div>'+
     '<div class="zside">'+
@@ -772,12 +772,40 @@ function initZones(){
     .concat(OAIP.A.map(function(a){return {n:a.n+" airport",t:"Airport",lat:a.lat,lon:a.lon,z:12};}));
   var q=document.getElementById("zq"),list=document.getElementById("zlist"),hits=[],act=-1;
   function statusFor(it){var r=checkSpot(it.lat,it.lon);return ["Clear","Permission","Limits",r.hard?"No fly":"Approval"][r.level];}
-  function show(){var v=q.value.trim().toLowerCase();
-    hits=IDX.filter(function(it){return v?it.n.toLowerCase().indexOf(v)>=0:it.t==="Suburb";})
-      .sort(function(a,b){return (a.n.toLowerCase().indexOf(v))-(b.n.toLowerCase().indexOf(v))||a.n.localeCompare(b.n);}).slice(0,40);
+  // live place search across Australia (Photon, built on OpenStreetMap): towns, suburbs, streets and addresses
+  var remote=[],reqId=0,timer=null,lastQ="";
+  function drawList(v,loading){
+    var local=IDX.filter(function(it){return v?it.n.toLowerCase().indexOf(v)>=0:it.t==="Suburb";})
+      .sort(function(a,b){return (a.n.toLowerCase().indexOf(v))-(b.n.toLowerCase().indexOf(v))||a.n.localeCompare(b.n);});
+    var seen={};local.forEach(function(it){seen[it.n.toLowerCase()]=1;});
+    hits=local.slice(0,v?8:40).concat(remote.filter(function(it){var k=it.n.toLowerCase();if(seen[k])return false;seen[k]=1;return true;})).slice(0,25);
     act=hits.length?0:-1;
-    list.innerHTML=hits.length?hits.map(function(it,i){return '<li role="option" data-i="'+i+'" aria-selected="'+(i===act)+'">'+esc(it.n)+' <span>'+it.t+' · '+statusFor(it)+'</span></li>';}).join(""):'<li class="none">Not found. Tap the map instead, or send me the address.</li>';
-    list.hidden=false;q.setAttribute("aria-expanded","true");}
+    var rows=hits.map(function(it,i){return '<li role="option" data-i="'+i+'" aria-selected="'+(i===act)+'">'+esc(it.n)+' <span>'+esc(it.t)+' · '+statusFor(it)+'</span></li>';}).join("");
+    if(loading)rows+='<li class="none">Searching all of Australia…</li>';
+    else if(!hits.length)rows='<li class="none">No match. Try a nearby town or tap the map.</li>';
+    list.innerHTML=rows;list.hidden=false;q.setAttribute("aria-expanded","true");}
+  function label(pr){
+    var street=pr.street?((pr.housenumber?pr.housenumber+" ":"")+pr.street):"";
+    var main=pr.name||street||pr.city||"";
+    var area=[pr.name&&street&&street!==pr.name?street:"",pr.city&&pr.city!==main?pr.city:(pr.district||""),pr.state].filter(Boolean);
+    var stAbbr={"New South Wales":"NSW","Victoria":"VIC","Queensland":"QLD","South Australia":"SA","Western Australia":"WA","Tasmania":"TAS","Northern Territory":"NT","Australian Capital Territory":"ACT"};
+    area=area.map(function(x){return stAbbr[x]||x;});
+    return {n:main+(area.length?", "+area.join(", "):""),kind:pr.housenumber||pr.type==="house"?"Address":pr.type==="street"?"Street":pr.type==="city"?"Town":"Place"};
+  }
+  function zoomFor(pr){return pr.housenumber||pr.type==="house"?17:pr.type==="street"?16:pr.type==="city"?12.5:pr.type==="district"||pr.type==="locality"?13.5:13;}
+  function searchRemote(v){
+    var id=++reqId;
+    fetch("https://photon.komoot.io/api/?q="+encodeURIComponent(v)+"&limit=10&lang=en&bbox=112.5,-44.5,154.5,-9.5",{headers:{"Accept":"application/json"}})
+      .then(function(r){return r.ok?r.json():{features:[]};})
+      .then(function(d){if(id!==reqId)return;
+        remote=(d.features||[]).filter(function(f){return f.properties&&f.properties.countrycode==="AU";}).map(function(f){
+          var L=label(f.properties),c=f.geometry.coordinates;return {n:L.n,t:L.kind,lat:c[1],lon:c[0],z:zoomFor(f.properties)};});
+        drawList(lastQ,false);})
+      .catch(function(){if(id!==reqId)return;remote=[];drawList(lastQ,false);});
+  }
+  function show(){var v=q.value.trim().toLowerCase();lastQ=v;clearTimeout(timer);
+    if(v.length<3){remote=[];reqId++;drawList(v,false);return;}
+    drawList(v,true);timer=setTimeout(function(){searchRemote(q.value.trim());},350);}
   function hide(){list.hidden=true;q.setAttribute("aria-expanded","false");}
   function choose(i){var it=hits[i];if(!it)return;q.value=it.n;hide();q.blur();map.flyTo({center:[it.lon,it.lat],zoom:it.z,duration:reduce?0:1600});place(it.lat,it.lon,it.n);
     var wrap=document.getElementById("zwrap"),r=wrap.getBoundingClientRect();if(r.top<0||r.bottom>window.innerHeight)wrap.scrollIntoView({behavior:reduce?"auto":"smooth",block:"center"});}

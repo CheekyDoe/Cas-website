@@ -65,5 +65,6 @@ commit the key itself.
 
 - Street map: OpenFreeMap / OpenMapTiles / © OpenStreetMap contributors (added automatically)
 - Airspace: openAIP, CC BY-NC 4.0
+- Place search: Photon by komoot, using OpenStreetMap data (fair use, no key)
 - The map is a guide only, not for navigation. Check a CASA-verified app
   (e.g. OpenSky) before every flight.
