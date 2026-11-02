@@ -85,7 +85,7 @@ p{margin:0}
 .courier .cable{position:absolute;left:50%;width:1.5px;background:rgba(246,241,231,.85);transform:translateX(-50%)}
 .drop-item{will-change:transform}
 body{position:relative}
-.amb-layer{position:absolute;left:0;top:0;width:100%;overflow:hidden;pointer-events:none;z-index:15}
+.amb-layer{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:15}
 .amb{position:absolute;left:0;top:0;pointer-events:none;will-change:transform;opacity:0}
 .amb .dr{width:100%;filter:drop-shadow(0 8px 8px rgba(0,0,0,.25))}
 .amb .dr svg,.amb .dr img{width:100%;height:auto;display:block}
@@ -902,21 +902,26 @@ function droneDrop(baseDelay){
 }
 
 
-/* ---------- ambient drones: every so often a drone crosses the screen, routing around text and images ---------- */
+/* ---------- ambient drones: every so often a drone crosses the part of the page you're looking at,
+   routing around text and images. It lives in a fixed layer (always on screen) and re-plans its route
+   whenever the page scrolls underneath it. ---------- */
 function ambientDrones(){
   if(reduce||window._casAmbient)return;window._casAmbient=true;
   var layer=document.createElement("div");layer.className="amb-layer";layer.setAttribute("aria-hidden","true");document.body.appendChild(layer);
   var busy=false;
-  var AVOID="h1,h2,h3,p,li,label,img,video,canvas.art,.btn,.chip,.pkg,.zmap-wrap,.zres,.enq,.details .row,.tile,.gitem,.spec,.marquee,.badge,.nav,.eyebrow,.swap,.cta,.filters,.zform,.zout,.vf .rec,.vf .vf-r,footer,.editbar";
-  function schedule(){setTimeout(tryFly,6000+Math.random()*9000);}
+  var AVOID="h1,h2,h3,p,li,label,img,video,canvas.art,.btn,.chip,.pkg,.zmap-wrap,.zres,.enq,.details .row,.tile,.gitem,.spec,.marquee,.badge,.eyebrow,.swap,.cta,.filters,.zform,.zout,.vf .rec,.vf .vf-r,footer,.editbar";
+  function schedule(ms){setTimeout(tryFly,ms!=null?ms:4000+Math.random()*6000);}
   function tryFly(){
-    if(busy||document.hidden||location.hash==="#gallery"||document.querySelector(".lb.open")||document.querySelector(".intro")){schedule();return;}
-    if(!fly())schedule();
+    if(busy||document.hidden||location.hash==="#gallery"||document.querySelector(".lb.open")||document.querySelector(".intro")){schedule(2000);return;}
+    if(!fly())schedule(1500);   // no clear route right now: try again soon
   }
-  function fly(){
-    var W=window.innerWidth,H=window.innerHeight,mob=W<600,dw=mob?46:78,dh=dw*.55,C=mob?12:18;
+  function sizes(){var W=window.innerWidth,mob=W<600,dw=mob?46:78;return {W:W,H:window.innerHeight,mob:mob,dw:dw,dh:dw*.55,C:mob?12:18};}
+  // plan a smooth route (viewport coords) from the screen edge, or from point `from`, to the far edge
+  function plan(dir,from,loose){
+    var z=sizes(),W=z.W,H=z.H,C=z.C,dw=z.dw,dh=z.dh;
+    var nav=document.getElementById("nav"),navB=nav?nav.getBoundingClientRect().bottom:0;
     var cols=Math.ceil(W/C)+2,rows=Math.floor(H/C),grid=new Uint8Array(cols*rows);
-    var padX=dw*(mob?.38:.45),padY=dh*(mob?.5:.6)+(mob?3:6);
+    var k=loose?.55:1,padX=dw*(z.mob?.38:.45)*k,padY=(dh*(z.mob?.5:.6)+(z.mob?3:6))*k;
     document.querySelectorAll(AVOID).forEach(function(el){
       var r=el.getBoundingClientRect();if(!r.width||r.bottom<-padY||r.top>H+padY)return;
       var cs=getComputedStyle(el);if(cs.visibility==="hidden"||cs.display==="none"||+cs.opacity===0)return;
@@ -924,17 +929,16 @@ function ambientDrones(){
           r0=Math.max(0,Math.floor((r.top-padY)/C)),r1=Math.min(rows-1,Math.floor((r.bottom+padY)/C));
       for(var y=r0;y<=r1;y++)for(var x=c0;x<=c1;x++)grid[y*cols+x]=1;
     });
-    // keep clear of the very top and bottom edges
-    for(var x=0;x<cols;x++){for(var y=0;y<2;y++){grid[y*cols+x]=1;grid[(rows-1-y)*cols+x]=1;}}
-    var dir=Math.random()<.5?1:-1,sc=dir>0?0:cols-1,ec=dir>0?cols-1:0;
-    var starts=[];for(var y=2;y<rows-2;y++)if(!grid[y*cols+sc]&&!grid[y*cols+sc+dir])starts.push(y);
-    if(!starts.length)return false;
-    var sy=starts[Math.floor(Math.random()*starts.length)];
-    // A* across the grid to any free cell on the far edge
-    var N=cols*rows,g=new Float32Array(N).fill(1e9),from=new Int32Array(N).fill(-1),open=[],closed=new Uint8Array(N);
-    var s0=sy*cols+sc;g[s0]=0;open.push([Math.abs(ec-sc),s0]);
-    var goal=-1,steps=0;
-    while(open.length&&steps++<20000){
+    var topRows=Math.ceil((navB+dh*.6)/C);
+    for(var x=0;x<cols;x++){for(var y=0;y<Math.min(rows,topRows);y++)grid[y*cols+x]=1;for(var y2=rows-2;y2<rows;y2++)grid[y2*cols+x]=1;}
+    var ec=dir>0?cols-1:0,s0;
+    if(from){var fx=Math.max(0,Math.min(cols-1,Math.floor(from[0]/C)+1)),fy=Math.max(0,Math.min(rows-1,Math.floor(from[1]/C)));
+      s0=fy*cols+fx;for(var yy=fy-2;yy<=fy+2;yy++)for(var xx=fx-2;xx<=fx+2;xx++)if(yy>=0&&yy<rows&&xx>=0&&xx<cols)grid[yy*cols+xx]=0;}
+    else{var sc=dir>0?0:cols-1,starts=[];for(var y3=topRows;y3<rows-2;y3++)if(!grid[y3*cols+sc]&&!grid[y3*cols+sc+dir])starts.push(y3);
+      if(!starts.length)return null;s0=starts[Math.floor(Math.random()*starts.length)]*cols+sc;}
+    var N=cols*rows,g=new Float32Array(N).fill(1e9),fromI=new Int32Array(N).fill(-1),open=[],closed=new Uint8Array(N),goal=-1,steps=0;
+    g[s0]=0;open.push([0,s0]);
+    while(open.length&&steps++<25000){
       var bi=0;for(var i=1;i<open.length;i++)if(open[i][0]<open[bi][0])bi=i;
       var cur=open.splice(bi,1)[0][1];if(closed[cur])continue;closed[cur]=1;
       var cx=cur%cols,cy=(cur-cx)/cols;if(cx===ec){goal=cur;break;}
@@ -942,42 +946,53 @@ function ambientDrones(){
         var nx=cx+dx,ny=cy+dy;if(nx<0||ny<0||nx>=cols||ny>=rows)continue;var ni=ny*cols+nx;if(grid[ni]||closed[ni])continue;
         if(dx&&dy&&(grid[cy*cols+nx]||grid[ny*cols+cx]))continue;
         var cost=g[cur]+(dx&&dy?1.45:dy?1.3:1)+(dx===-dir?3:0);
-        if(cost<g[ni]){g[ni]=cost;from[ni]=cur;open.push([cost+Math.abs(ec-nx),ni]);}}
+        if(cost<g[ni]){g[ni]=cost;fromI[ni]=cur;open.push([cost+Math.abs(ec-nx),ni]);}}
     }
-    if(goal<0)return false;
-    var cells=[];for(var c=goal;c>=0;c=from[c])cells.unshift(c);
+    if(goal<0)return null;
+    var cells=[];for(var c=goal;c>=0;c=fromI[c])cells.unshift(c);
     var P=cells.map(function(c){var x=c%cols,y=(c-x)/cols;return [(x-1)*C+C/2,y*C+C/2];});
-    // pull the path tight where there is a clear line of sight
+    if(from)P[0]=from.slice();
     function clear(a,b){var n=Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/(C*.5));for(var i=0;i<=n;i++){var x=a[0]+(b[0]-a[0])*i/n,y=a[1]+(b[1]-a[1])*i/n,gx=Math.floor(x/C)+1,gy=Math.floor(y/C);
       if(gx>=0&&gx<cols&&gy>=0&&gy<rows&&grid[gy*cols+gx])return false;}return true;}
-    var W2=[P[0]],k=0;while(k<P.length-1){var j=P.length-1;while(j>k+1&&!clear(P[k],P[j]))j--;W2.push(P[j]);k=j;}
-    W2.unshift([W2[0][0]-dir*dw,W2[0][1]]);W2.push([W2[W2.length-1][0]+dir*dw,W2[W2.length-1][1]]);
-    // smooth with Catmull-Rom and measure
-    var S=[];for(var i=0;i<W2.length-1;i++){var p0=W2[Math.max(0,i-1)],p1=W2[i],p2=W2[i+1],p3=W2[Math.min(W2.length-1,i+2)];
+    var Wp=[P[0]],j0=0;while(j0<P.length-1){var j=P.length-1;while(j>j0+1&&!clear(P[j0],P[j]))j--;Wp.push(P[j]);j0=j;}
+    if(!from)Wp.unshift([Wp[0][0]-dir*dw,Wp[0][1]]);
+    Wp.push([Wp[Wp.length-1][0]+dir*dw,Wp[Wp.length-1][1]]);
+    var S=[];for(var i2=0;i2<Wp.length-1;i2++){var p0=Wp[Math.max(0,i2-1)],p1=Wp[i2],p2=Wp[i2+1],p3=Wp[Math.min(Wp.length-1,i2+2)];
       for(var t=0;t<1;t+=.05){var t2=t*t,t3=t2*t;S.push([.5*((2*p1[0])+(-p0[0]+p2[0])*t+(2*p0[0]-5*p1[0]+4*p2[0]-p3[0])*t2+(-p0[0]+3*p1[0]-3*p2[0]+p3[0])*t3),
         .5*((2*p1[1])+(-p0[1]+p2[1])*t+(2*p0[1]-5*p1[1]+4*p2[1]-p3[1])*t2+(-p0[1]+3*p1[1]-3*p2[1]+p3[1])*t3)]);}}
-    S.push(W2[W2.length-1]);
-    var L=[0];for(var i=1;i<S.length;i++)L.push(L[i-1]+Math.hypot(S[i][0]-S[i-1][0],S[i][1]-S[i-1][1]));
-    var total=L[L.length-1],speed=W<600?120:170,D=total/speed*1000;
-    function at(d){d=Math.max(0,Math.min(total,d));var i=1;while(i<L.length-1&&L[i]<d)i++;var u=(d-L[i-1])/((L[i]-L[i-1])||1);
-      return [S[i-1][0]+(S[i][0]-S[i-1][0])*u,S[i-1][1]+(S[i][1]-S[i-1][1])*u];}
-    // drone in page coordinates so it scrolls with the content it's avoiding
-    var ox=window.scrollX,oy=window.scrollY;layer.style.height=document.documentElement.scrollHeight+"px";
-    var d=document.createElement("div");d.className="amb";d.style.width=dw+"px";
+    S.push(Wp[Wp.length-1]);
+    var L=[0];for(var i3=1;i3<S.length;i3++)L.push(L[i3-1]+Math.hypot(S[i3][0]-S[i3-1][0],S[i3][1]-S[i3-1][1]));
+    return {S:S,L:L,total:L[L.length-1]};
+  }
+  function at(r,d){d=Math.max(0,Math.min(r.total,d));var i=1;while(i<r.L.length-1&&r.L[i]<d)i++;var u=(d-r.L[i-1])/((r.L[i]-r.L[i-1])||1);
+    return [r.S[i-1][0]+(r.S[i][0]-r.S[i-1][0])*u,r.S[i-1][1]+(r.S[i][1]-r.S[i-1][1])*u];}
+  function fly(){
+    var dir=Math.random()<.5?1:-1,route=plan(dir,null,false)||plan(dir,null,true);
+    if(!route)return false;
+    var z=sizes(),d=document.createElement("div");d.className="amb";d.style.width=z.dw+"px";
     d.innerHTML='<div class="dr'+(dir>0?'':' flip')+'">'+droneMarkup(STATE)+'</div>';layer.appendChild(d);
-    busy=true;var t0=null,tilt=0,ph=Math.random()*6,h=12;
-    function ease(u){return u<.5?2*u*u:1-Math.pow(-2*u+2,2)/2;}
-    function frame(now){if(t0===null)t0=now;var u=Math.min(1,(now-t0)/D),dist=ease(u)*total,p=at(dist);
-      var ah=at(dist-h),bh=at(dist+h),vx=(bh[0]-ah[0]),vy=(bh[1]-ah[1]);
-      var lean=Math.max(-16,Math.min(16,vx*0.35+vy*-0.15*dir));tilt+=(lean-tilt)*.12;
+    busy=true;
+    var dist=0,last=null,born=null,tilt=0,ph=Math.random()*6,h=12,speed=z.mob?125:175,dirty=false,lastPlan=0,pos=at(route,0);
+    function onScroll(){dirty=true;}
+    window.addEventListener("scroll",onScroll,{passive:true});window.addEventListener("resize",onScroll);
+    function frame(now){
+      if(born===null){born=now;last=now;}
+      var dt=Math.min(.05,(now-last)/1000);last=now;
+      if(dirty&&now-lastPlan>140){dirty=false;lastPlan=now;
+        var nr=plan(dir,pos,false)||plan(dir,pos,true);if(nr){route=nr;dist=0;}}
+      var ramp=Math.min(1,(now-born)/700);dist+=speed*dt*(.25+.75*ramp*ramp);
+      var p=at(route,dist),a=at(route,dist-h),b=at(route,dist+h),vx=b[0]-a[0],vy=b[1]-a[1];pos=p;
+      var lean=Math.max(-16,Math.min(16,vx*.35));tilt+=(lean-tilt)*.12;
       var bob=Math.sin(now/260+ph)*2;
-      d.style.transform="translate("+(ox+p[0]-dw/2).toFixed(1)+"px,"+(oy+p[1]-dh/2+bob).toFixed(1)+"px) rotate("+tilt.toFixed(2)+"deg)";
-      d.style.opacity=u<.04?u/.04:u>.96?(1-u)/.04:1;
-      if(u<1)requestAnimationFrame(frame);else{d.remove();busy=false;schedule();}}
+      d.style.transform="translate("+(p[0]-z.dw/2).toFixed(1)+"px,"+(p[1]-z.dh/2+bob).toFixed(1)+"px) rotate("+tilt.toFixed(2)+"deg)";
+      d.style.opacity=Math.min(1,(now-born)/350);
+      if(dist<route.total&&!document.hidden&&location.hash!=="#gallery")requestAnimationFrame(frame);
+      else{d.remove();busy=false;window.removeEventListener("scroll",onScroll);window.removeEventListener("resize",onScroll);schedule();}
+    }
     requestAnimationFrame(frame);
     return true;
   }
-  schedule();
+  schedule(1500);
 }
 
 /* ---------- intro: drone flies left to right, growing as it nears, pulling the curtain ---------- */
@@ -1045,7 +1060,7 @@ function intro(){
   var D=4300,t0=null,ended=false;
   function lerp(a,b,t){return a+(b-a)*t;}
   function ease(t){return t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;}
-  function finish(){if(ended)return;ended=true;document.body.classList.add("go");setTimeout(ambientDrones,4500);html.style.overflow=prevOverflow;ov.classList.add("done");setTimeout(function(){ov.remove();},400);}
+  function finish(){if(ended)return;ended=true;document.body.classList.add("go");setTimeout(ambientDrones,1500);html.style.overflow=prevOverflow;ov.classList.add("done");setTimeout(function(){ov.remove();},400);}
   ov.onclick=finish;
   function frame(ts){
     if(ended)return;
