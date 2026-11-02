@@ -86,7 +86,12 @@ p{margin:0}
 .drop-item{will-change:transform}
 body{position:relative}
 .amb-layer{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:15}
-.amb{position:absolute;left:0;top:0;pointer-events:none;will-change:transform;opacity:0}
+.amb{position:absolute;left:0;top:0;pointer-events:auto;cursor:crosshair;will-change:transform;opacity:0;touch-action:manipulation;padding:6px;margin:-6px}
+.amb.hit{cursor:default;pointer-events:none}
+.amb.hit .dr{filter:drop-shadow(0 6px 6px rgba(0,0,0,.3)) saturate(.6) brightness(.8)}
+.amb-spark,.amb-dust{position:absolute;border-radius:50%;pointer-events:none}
+.amb-spark{background:#F2A766;box-shadow:0 0 6px #F2A766}
+.amb-dust{background:rgba(140,128,110,.55)}
 .amb .dr{width:100%;filter:drop-shadow(0 8px 8px rgba(0,0,0,.25))}
 .amb .dr svg,.amb .dr img{width:100%;height:auto;display:block}
 .amb .dr.flip{transform:scaleX(-1)}
@@ -992,14 +997,14 @@ function ambientDrones(){
       route={S:S,L:L,total:L[L.length-1]};dist=0;}
     function onScroll(){dirty=true;}
     window.addEventListener("scroll",onScroll,{passive:true});window.addEventListener("resize",onScroll);
-    function frame(now){
+    var frame=function(now){
       if(born===null){born=now;last=now;}
       var dt=Math.min(.05,(now-last)/1000);last=now;
       if(!escaping&&(dirty||now-lastHit>220)){lastHit=now;
-        var Wv=window.innerWidth,edge=pos[0]<z.dw*.6||pos[0]>Wv-z.dw*.6;
-        if(hitsContent(pos)||(dirty&&edge))escape();        // scrolled into text, or caught half on screen: fly off
-        else if(dirty&&now-lastPlan>140){dirty=false;lastPlan=now;
-          var nr=plan(dir,pos,false)||plan(dir,pos,true);if(nr){route=nr;dist=0;}else escape();}}
+        var Wv=window.innerWidth,onScreen=pos[0]>z.dw*.6&&pos[0]<Wv-z.dw*.6;
+        if(hitsContent(pos))escape();                       // touching text, an image or a button: fly off
+        else if(dirty&&onScreen&&now-lastPlan>140){dirty=false;lastPlan=now;   // page moved: find a fresh way around
+          var nr=plan(dir,pos,false)||plan(dir,pos,true);if(nr){route=nr;dist=0;}}}
       var ramp=Math.min(1,(now-born)/700);boost+=((escaping?2.6:1)-boost)*.08;
       dist+=speed*dt*(.25+.75*ramp*ramp)*boost;
       var p=at(route,dist),a=at(route,dist-h),b=at(route,dist+h),vx=b[0]-a[0],vy=b[1]-a[1];pos=p;
@@ -1009,10 +1014,32 @@ function ambientDrones(){
       d.style.opacity=Math.min(1,(now-born)/350);
       if(dist<route.total&&!document.hidden&&location.hash!=="#gallery")requestAnimationFrame(frame);
       else{d.remove();busy=false;window.removeEventListener("scroll",onScroll);window.removeEventListener("resize",onScroll);schedule();}
-    }
+    };
+    // tap or click a drone to knock it out of the sky
+    var crash=null;
+    d.addEventListener("pointerdown",function(e){e.preventDefault();e.stopPropagation();if(crash)return;
+      var a=at(route,dist-h),b=at(route,dist+h),k=speed*boost/(2*h);
+      crash={x:pos[0],y:pos[1],vx:(b[0]-a[0])*k*.7,vy:Math.min(-120,(b[1]-a[1])*k-160),rot:tilt,spin:(dir>0?1:-1)*(380+Math.random()*260),landed:0};
+      d.classList.add("hit");try{var sv=d.querySelector("svg");if(sv&&sv.pauseAnimations)sv.pauseAnimations();}catch(err){}
+      puff(pos[0],pos[1],6,"spark");});
+    var _frame=frame;frame=function(now){
+      if(!crash)return _frame(now);
+      var dt=Math.min(.05,(now-last)/1000);last=now;var Hh=window.innerHeight,floor=Hh-z.dh*.45;
+      if(!crash.landed){crash.vy+=2100*dt;crash.x+=crash.vx*dt;crash.y+=crash.vy*dt;crash.rot+=crash.spin*dt;crash.spin*=.995;
+        if(crash.y>=floor){crash.y=floor;crash.landed=now;crash.vy=0;puff(crash.x,floor+z.dh*.3,14,"dust");}}
+      else{var since=(now-crash.landed)/1000;crash.x+=crash.vx*dt*Math.max(0,1-since*3);crash.rot+=(Math.round(crash.rot/180)*180+(dir>0?12:-12)-crash.rot)*.15;
+        d.style.opacity=Math.max(0,1-Math.max(0,since-.7)/.5);
+        if(since>1.25){d.remove();busy=false;window.removeEventListener("scroll",onScroll);window.removeEventListener("resize",onScroll);schedule();return;}}
+      d.style.transform="translate("+(crash.x-z.dw/2).toFixed(1)+"px,"+(crash.y-z.dh/2).toFixed(1)+"px) rotate("+crash.rot.toFixed(1)+"deg)";
+      requestAnimationFrame(frame);};
     requestAnimationFrame(frame);
     return true;
   }
+  function puff(x,y,n,kind){for(var i=0;i<n;i++){var b=document.createElement("i");b.className="amb-"+kind;layer.appendChild(b);
+    var ang=kind==="dust"?Math.PI+Math.random()*Math.PI:Math.random()*Math.PI*2,sp=kind==="dust"?30+Math.random()*60:40+Math.random()*90,sz=kind==="dust"?8+Math.random()*12:3+Math.random()*3;
+    b.style.cssText="left:"+x+"px;top:"+y+"px;width:"+sz+"px;height:"+sz+"px";
+    b.animate([{transform:"translate(-50%,-50%) scale(.6)",opacity:1},{transform:"translate(calc(-50% + "+(Math.cos(ang)*sp).toFixed(0)+"px),calc(-50% + "+(Math.sin(ang)*sp*(kind==="dust"?.5:1)).toFixed(0)+"px)) scale("+(kind==="dust"?1.8:.4)+")",opacity:0}],
+      {duration:kind==="dust"?900+Math.random()*400:450+Math.random()*250,easing:"cubic-bezier(.2,.7,.3,1)"}).onfinish=function(){this.effect.target.remove();};}}
   schedule(1500);
 }
 
