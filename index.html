@@ -932,7 +932,8 @@ function ambientDrones(){
     var topRows=Math.ceil((navB+dh*.6)/C);
     for(var x=0;x<cols;x++){for(var y=0;y<Math.min(rows,topRows);y++)grid[y*cols+x]=1;for(var y2=rows-2;y2<rows;y2++)grid[y2*cols+x]=1;}
     var ec=dir>0?cols-1:0,s0;
-    if(from){var fx=Math.max(0,Math.min(cols-1,Math.floor(from[0]/C)+1)),fy=Math.max(0,Math.min(rows-1,Math.floor(from[1]/C)));
+    if(from){var back=dir>0?0:cols-1;for(var yb=0;yb<rows;yb++)grid[yb*cols+back]=1;   // never wander off the side it came from
+      var fx=Math.max(1,Math.min(cols-2,Math.floor(from[0]/C)+1)),fy=Math.max(0,Math.min(rows-1,Math.floor(from[1]/C)));
       s0=fy*cols+fx;for(var yy=fy-2;yy<=fy+2;yy++)for(var xx=fx-2;xx<=fx+2;xx++)if(yy>=0&&yy<rows&&xx>=0&&xx<cols)grid[yy*cols+xx]=0;}
     else{var sc=dir>0?0:cols-1,starts=[];for(var y3=topRows;y3<rows-2;y3++)if(!grid[y3*cols+sc]&&!grid[y3*cols+sc+dir])starts.push(y3);
       if(!starts.length)return null;s0=starts[Math.floor(Math.random()*starts.length)]*cols+sc;}
@@ -972,17 +973,37 @@ function ambientDrones(){
     var z=sizes(),d=document.createElement("div");d.className="amb";d.style.width=z.dw+"px";
     d.innerHTML='<div class="dr'+(dir>0?'':' flip')+'">'+droneMarkup(STATE)+'</div>';layer.appendChild(d);
     busy=true;
-    var dist=0,last=null,born=null,tilt=0,ph=Math.random()*6,h=12,speed=z.mob?125:175,dirty=false,lastPlan=0,pos=at(route,0);
+    var dist=0,last=null,born=null,tilt=0,ph=Math.random()*6,h=12,speed=z.mob?125:175,dirty=false,lastPlan=0,pos=at(route,0),escaping=false,boost=1,lastHit=0;
+    var els=Array.prototype.slice.call(document.querySelectorAll(AVOID));
+    function hitsContent(p){   // does the drone's body overlap any text, image or button right now?
+      var x0=p[0]-z.dw*.38,x1=p[0]+z.dw*.38,y0=p[1]-z.dh*.35,y1=p[1]+z.dh*.35;
+      for(var i=0;i<els.length;i++){var r=els[i].getBoundingClientRect();
+        if(r.width&&r.right>x0&&r.left<x1&&r.bottom>y0&&r.top<y1){var cs=getComputedStyle(els[i]);if(cs.visibility!=="hidden"&&+cs.opacity!==0)return true;}}
+      return false;}
+    function escape(){   // bail out: climb and dart off the nearest side of the screen
+      escaping=true;boost=2.6;
+      var W=window.innerWidth,goRight=pos[0]>W/2?true:pos[0]<W/2?false:dir>0;
+      if(Math.abs((goRight?W-pos[0]:pos[0])-W/2)<W*.1)goRight=dir>0;
+      var tx=goRight?W+z.dw:-z.dw,ty=Math.max(-z.dh,pos[1]-Math.abs(tx-pos[0])*.45);
+      if(goRight!==(dir>0)){dir=-dir;d.firstChild.classList.toggle("flip");}
+      var mid=[pos[0]+(tx-pos[0])*.35,pos[1]-Math.abs(tx-pos[0])*.08];
+      var S=[pos.slice()];for(var t=.05;t<=1.0001;t+=.05){var u=1-t;S.push([u*u*pos[0]+2*u*t*mid[0]+t*t*tx,u*u*pos[1]+2*u*t*mid[1]+t*t*ty]);}
+      var L=[0];for(var i=1;i<S.length;i++)L.push(L[i-1]+Math.hypot(S[i][0]-S[i-1][0],S[i][1]-S[i-1][1]));
+      route={S:S,L:L,total:L[L.length-1]};dist=0;}
     function onScroll(){dirty=true;}
     window.addEventListener("scroll",onScroll,{passive:true});window.addEventListener("resize",onScroll);
     function frame(now){
       if(born===null){born=now;last=now;}
       var dt=Math.min(.05,(now-last)/1000);last=now;
-      if(dirty&&now-lastPlan>140){dirty=false;lastPlan=now;
-        var nr=plan(dir,pos,false)||plan(dir,pos,true);if(nr){route=nr;dist=0;}}
-      var ramp=Math.min(1,(now-born)/700);dist+=speed*dt*(.25+.75*ramp*ramp);
+      if(!escaping&&(dirty||now-lastHit>220)){lastHit=now;
+        var Wv=window.innerWidth,edge=pos[0]<z.dw*.6||pos[0]>Wv-z.dw*.6;
+        if(hitsContent(pos)||(dirty&&edge))escape();        // scrolled into text, or caught half on screen: fly off
+        else if(dirty&&now-lastPlan>140){dirty=false;lastPlan=now;
+          var nr=plan(dir,pos,false)||plan(dir,pos,true);if(nr){route=nr;dist=0;}else escape();}}
+      var ramp=Math.min(1,(now-born)/700);boost+=((escaping?2.6:1)-boost)*.08;
+      dist+=speed*dt*(.25+.75*ramp*ramp)*boost;
       var p=at(route,dist),a=at(route,dist-h),b=at(route,dist+h),vx=b[0]-a[0],vy=b[1]-a[1];pos=p;
-      var lean=Math.max(-16,Math.min(16,vx*.35));tilt+=(lean-tilt)*.12;
+      var lean=Math.max(escaping?-26:-16,Math.min(escaping?26:16,vx*.35*(escaping?1.4:1)));tilt+=(lean-tilt)*(escaping?.2:.12);
       var bob=Math.sin(now/260+ph)*2;
       d.style.transform="translate("+(p[0]-z.dw/2).toFixed(1)+"px,"+(p[1]-z.dh/2+bob).toFixed(1)+"px) rotate("+tilt.toFixed(2)+"deg)";
       d.style.opacity=Math.min(1,(now-born)/350);
