@@ -1,0 +1,30 @@
+# System junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Secrets (keep API keys out of GitHub)
+.env
+.env.*
+*.key
+
+# Python (airspace refresh script)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node, if you ever add tools
+node_modules/
+
+# Editor folders
+.vscode/
+.idea/
+
+# Full-size originals: keep these on your computer, upload web-sized copies to images/
+originals/
+raw/
+*.psd
+*.dng
+*.CR3
+*.ARW
