@@ -18,5 +18,9 @@ window.CAS_CONFIG = {
 
   // Optional: your own drone cut-out for the intro and courier drones.
   // Transparent PNG, drone facing right, e.g. "images/drone.png"
+  // Optional: a photo of you (or you with the drone) for the About section.
+  // Portrait or square works best, e.g. "images/jonathan.jpg". Leave "" to hide.
+  portrait: "",
+
   droneImage: ""
 };
