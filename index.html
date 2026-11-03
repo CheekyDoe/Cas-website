@@ -449,7 +449,7 @@ function render(){
   '</div></section>'+
 
   '<section><div class="wrap about reveal">'+
-    '<p class="big">I\'m Banjo. Portrait photographer turned drone pilot, building CAS from the ground up.</p>'+
+    '<p class="big">I\'m Jonathan, a CASA-accredited drone pilot and portrait photographer building CAS from the ground up.</p>'+
     '<div><p>I\'ve spent years shooting portraits for all kinds of occasions, so don\'t let that fool you into thinking my skills stop there. Framing, light and timing translate straight into the air.</p><p>Buying my first drone opened up a whole new world, to the point where I want to make a life out of it. Whether it\'s a trip somewhere remote for mountain ranges and a blue-tinged sunrise, or an event you can\'t afford to miss, I want to be the one flying.</p><p>I\'m after people willing to give a new business a go, and hopefully build a working relationship that lasts, now and into the future.</p></div>'+
   '</div></section>'+
 
@@ -503,7 +503,7 @@ function wire(list){
   // enquiry builder
   var f=document.getElementById("enq"),out=document.getElementById("e-out");
   function msg(){var g=function(id){return document.getElementById(id).value.trim();};
-    return "Hi Banjo,\n\nI'd like to book a shoot with CAS.\n\nName: "+(g("e-name")||"-")+"\nContact: "+(g("e-contact")||"-")+"\nProperty: "+(g("e-addr")||"-")+"\nPackage: "+g("e-pkg")+"\nPreferred date: "+(g("e-date")||"-")+(g("e-msg")?"\n\n"+g("e-msg"):"")+"\n\nThanks!";}
+    return "Hi Jonathan,\n\nI'd like to book a shoot with CAS.\n\nName: "+(g("e-name")||"-")+"\nContact: "+(g("e-contact")||"-")+"\nProperty: "+(g("e-addr")||"-")+"\nPackage: "+g("e-pkg")+"\nPreferred date: "+(g("e-date")||"-")+(g("e-msg")?"\n\n"+g("e-msg"):"")+"\n\nThanks!";}
   f.oninput=function(){out.textContent=msg();}; out.textContent=msg();
   f.onsubmit=function(e){e.preventDefault();var s=document.getElementById("e-status"),btn=document.getElementById("e-send");
     if(!CAS_CONFIG.formspree){copyText(msg(),function(ok){s.textContent=ok?"Copied. Paste it into an email or text to send.":"Couldn't copy. Select the text above and copy it.";});return;}
